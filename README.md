@@ -80,37 +80,39 @@ The input argument `split` is used to decide how to handle critical regions with
 
 ## Illustrative Example: 2-Agent Generalized Game
 
-Consider the running example from the manuscript
+Consider following example (Rosen, 1965):
 
 **Agent 1:**
-$$\min_{x_1 \geq 0} \frac{1}{2}x_1^2 - x_1x_2 + p_1x_1 \quad \text{s.t.} \quad -x_1 - x_2 \leq p_c$$
+$$\min_{x_1 \geq 0} \frac{1}{2}x_1^2 - x_1x_2 + p_2x_1 \quad \text{s.t.} \quad -x_1 - x_2 \leq p_1$$
 
 **Agent 2:**
-$$\min_{x_2 \geq 0} x_2^2 + x_1x_2 \quad \text{s.t.} \quad -x_1 - x_2 \leq p_c$$
+$$\min_{x_2 \geq 0} x_2^2 + x_1x_2 \quad \text{s.t.} \quad -x_1 - x_2 \leq p_1$$
 
-Where $p = [p_c, p_1]^T$ are the parameters.
+where $p = [p_1\ p_2]^T$ are the parameters.
 
 ### Problem Matrices
 
-The quadratic cost matrices are:
+The quadratic cost matrices are
 
 ```math
 Q_1 = \begin{bmatrix} 1 & -1 \\ -1 & 0 \end{bmatrix}, \quad 
 Q_2 = \begin{bmatrix} 0 & 1 \\ 1 & 2 \end{bmatrix}
 ```
 
-The parameter gain matrices are:
+The parameter gain matrices are
 
 ```math
 F_1 = \begin{bmatrix} 0 & 1 \\ 0 & 0 \end{bmatrix}, \quad 
 F_2 = \begin{bmatrix} 0 & 0 \\ 0 & 0 \end{bmatrix}
 ```
 
-The constraint matrix is
+The constraint matrices are
 
 ```math
 A =  \begin{bmatrix}
--1 & -1 \end{bmatrix}
+-1 & -1 \end{bmatrix},\quad b=0,\quad S = 
+\begin{bmatrix}
+1 & 0 \end{bmatrix}
 ```
 ### Implementation
 
