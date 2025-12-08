@@ -1,4 +1,4 @@
-# nash-mpqp
+# nash_mpqp
 
 Solver for parametric generalized Nash equilibrium (GNE) problems with quadratic objectives and coupled linear inequality constraints. 
 
