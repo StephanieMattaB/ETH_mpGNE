@@ -176,7 +176,7 @@ If you use this software, please cite the following associated paper:
 @article{HB25,
   title={Solving Multiparametric Generalized {Nash} Equilibrium Problems and Explicit Game-Theoretic Model Predictive Control},
   author={Sophie Hall, Alberto Bemporad},
-  journal={arXiv},
+  journal={\url{https://arxiv.org/abs/2512.05505}},
   year={2025}
 }
 ```
