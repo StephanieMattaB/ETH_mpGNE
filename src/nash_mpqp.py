@@ -367,6 +367,7 @@ class NashMPQP:
         self.npar = pmin.size
         self.nvar = sum(dim)
         self.ncon = A.shape[0]
+        self.ncon_orig = A.shape[0]
         
         N = len(dim) # number of agents
         if not len(Q)==N:
@@ -556,10 +557,13 @@ class NashMPQP:
             G_act = np.zeros((ncon,N), dtype=bool) # G_act[j,i] = True if constraint j is active for agent i
             for i in range(N):
                 G_act[active_sets[i],i] = True
-            cond = [sum(G_act[j,G[j,:]]) % sum(G[j,:]) ==0 for j in range(ncon)] # check if the entries of G_act[j,G[j,:]], which are nj=sum(G[j,:]) entries, are either all False (their sum is 0, and hence 0 % nj = 0) or all True (their sum is nj, and again nj % nj = 0), for each constraint j
-            if not all(cond):
-                # active sets are inconsistent, skip this combination
-                continue
+				
+            # The following has been disabled:
+            # # Check whether the combination is valid, i.e., active/inactive constraints are consistent
+            # cond = [sum(G_act[j,G[j,:]]) % sum(G[j,:]) ==0 for j in range(ncon)] # check if the entries of G_act[j,G[j,:]], which are nj=sum(G[j,:]) entries, are either all False (their sum is 0, and hence 0 % nj = 0) or all True (their sum is nj, and again nj % nj = 0), for each constraint j
+            # if not all(cond):
+            # 	  # active sets are inconsistent, skip this combination
+            #     continue
             
             bi = [mpQPs[i].CRs[comb[i]].bth for i in range(N)]
             Ai = [mpQPs[i].CRs[comb[i]].Ath for i in range(N)]
@@ -601,7 +605,7 @@ class NashMPQP:
                 x,r = chebyshev_center(Ap,bp)  # compute Chebyshev center
                 if r>=1.e-6:                     
                     keep = np.sqrt(np.sum(Ap**2, axis=1)) > 1.e-10 # Remove possible rows of Ap with small norm
-                    self.CRs.append({"Ath": Ap[keep,:], "bth": bp[keep], "z": Gp, "dim": 0, "x_cheby": x, "r_cheby": r, "combination": comb, "Ath_ext": None, "bth_ext": None, "gain_y": None, "Mx": Mx, "Mp": Mp[:,:-1], "M1": Mp[:,-1], "type": "unique"})
+                    self.CRs.append({"Ath": Ap[keep,:], "bth": bp[keep], "z": Gp, "dim": 0, "x_cheby": x, "r_cheby": r, "combination": comb, "active_sets": active_sets,"Ath_ext": None, "bth_ext": None, "gain_y": None, "Mx": Mx, "Mp": Mp[:,:-1], "M1": Mp[:,-1], "type": "unique"})
                     self.gains_CRs.append(gains)
 
             else:
@@ -680,14 +684,16 @@ class NashMPQP:
                                     if self.variational_split:
                                         H = np.zeros((n2, n2))
                                         F = np.zeros((n2, npar))
-                                        f = np.zeros((n2, 1))
+                                        f = np.zeros(n2)
 
                                     # Matrix G_act contains info about which constraints are active for each agent. As consistency of active shared constraints among agents was already checked above, if a row of G_act has at least two True values, the corresponding constraint is an active shared one
-                                    
-                                    for c in range(ncon):
-                                        if sum(G_act[c,:])<2:
+                                    for c in range(self.ncon_orig): # only include shared inequalities. Exclude the last constraints added to handle variable bounds, which must not be shared among agents
+                                        Ic_sharing = np.where(G[c,:])[0]  # agents whose variables appear in constraint c
+                                        if len(Ic_sharing) < 2:
                                             continue # not a shared active constraint
                                         Ic= np.where(G_act[c,:])[0] # indices of agents sharing active constraint c
+                                        if len(Ic) == 0:
+                                            continue  # constraint inactive for all agents: lambda=0 automatically
                                         i1=Ic[0]
                                         
                                         # Lambda_i1 = Klambda_i1 @ [x(-i1);p;y2] + klambda_i1
@@ -696,6 +702,21 @@ class NashMPQP:
                                         _, nisi1 = get_indices(i1, dim, nvar)
                                         n1 = len(nisi1) # dim(x(-i1))
 
+                                        if len(Ic) < len(Ic_sharing):
+                                            Mxrow = np.zeros(nvar)
+                                            Mprow = np.zeros(npar+1)
+                                            Mxrow[nisi1] = Klambda_i1[:n1]
+                                            Mprow[:npar] = -Klambda_i1[n1:]
+                                            Mprow[-1] = -klambda_i1
+                                            Mx2.append(Mxrow.reshape(1,-1))
+                                            Mp2.append(Mprow.reshape(1,-1))
+                                            if self.variational_split:
+                                                Lambda_y2 = (Klambda_i1[:n1] @ Gp[nisi1, npar:npar+n2]).reshape(1,-1)
+                                                Lambda_p  = (Klambda_i1[:n1] @ Gp[nisi1, :npar] + Klambda_i1[n1:]).reshape(1,-1)
+                                                Lambda_c  = (Klambda_i1[:n1] @ Gp[nisi1, -1] + klambda_i1).reshape(1,)
+                                                H += Lambda_y2.T @ Lambda_y2
+                                                F += Lambda_y2.T @ Lambda_p
+                                                f += (Lambda_y2.T @ Lambda_c.reshape(-1,1)).reshape(-1)
                                         for jx in range(1, len(Ic)):
                                             j = Ic[jx]
                                             # Lambda_j = Klambda_i1 @ [x(-j);p;y2] + klambda_j
@@ -724,49 +745,53 @@ class NashMPQP:
 
                                                 H += Lambda_y2_diff.T @ Lambda_y2_diff
                                                 F += Lambda_y2_diff.T @ Lambda_p_diff
-                                                f += Lambda_y2_diff.T @ Lambda_const_diff.reshape(-1, 1)
+                                                f += (Lambda_y2_diff.T @ Lambda_const_diff.reshape(-1, 1)).reshape(-1)
                                         
                                     # Solve equilibrium condition with additional constraints Lambda_i1 - Lambda_j = 0 for all j in Ic
-                                    Mx2 = np.vstack(Mx2)
-                                    Mp2 = np.vstack(Mp2)
-                                    Mx2 = np.vstack((Mx, Mx2))
-                                    Mp2 = np.vstack((Mp, Mp2))
-                                    
-                                    U,s,Vt = np.linalg.svd(Mx2)
-                                    rank_Mx2 = np.sum(s >= 1.e-6)  
-                                    if rank_Mx2==nvar:
-                                        if not self.split:
+                                    if len(Mx2) == 0:
+                                        solve_mpQP2 = False
+                                    else:
+                                        Gp2 = None  # set below if a unique vGNE solution is found
+                                        Mx2 = np.vstack(Mx2)
+                                        Mp2 = np.vstack(Mp2)
+                                        Mx2 = np.vstack((Mx, Mx2))
+                                        Mp2 = np.vstack((Mp, Mp2))
+                                        U,s,Vt = np.linalg.svd(Mx2)
+                                        rank_Mx2 = np.sum(s >= 1.e-6)
+                                        if rank_Mx2==nvar:
+                                            if not self.split:
                                             # Unique variational GNE solution
                                             # Mx2*x = U*[diag(s);0]@Vt*x = Mp2
                                             # Set y=Vt*x -> diag(s)@y = U[:,:nvar].T@Mp2 -> y = diag(1/s)@U[:,:nvar].T@Mp2 -> x=Vt.T@y
-                                            Gp2 = Vt.T@np.diag(1./s)@U[:,:nvar].T@Mp2 # explicit solution x=Gp2*[p;1]
+                                                Gp2 = Vt.T@np.diag(1./s)@U[:,:nvar].T@Mp2 # explicit solution x=Gp2*[p;1]
                                             # Critical region for the parametric Nash equilibrium
                                             # A[:,:nvar]@Gp2@[p;1] + A[:,nvar:nvar+npar]@p <= bb
-                                            Ap2 = np.vstack(([AA[i][:, :nvar] @ Gp2[:, :-1] + AA[i][:, nvar:nvar+npar] for i in range(N)]))
-                                            bp2 = np.hstack(([bi[i].reshape(-1) - AA[i][:, :nvar] @ Gp2[:,npar] for i in range(N)]))
-                                            solve_mpQP2 = False
+                                                Ap2 = np.vstack(([AA[i][:, :nvar] @ Gp2[:, :-1] + AA[i][:, nvar:nvar+npar] for i in range(N)]))
+                                                bp2 = np.hstack(([bi[i].reshape(-1) - AA[i][:, :nvar] @ Gp2[:,npar] for i in range(N)]))
+                                                solve_mpQP2 = False
                                             
-                                    elif rank_Mx2 < nvar:
-                                        U2 = U[:,rank_Mx2:]  
-                                        if np.linalg.norm(U2.T@Mp2) <= 1.e-12: 
-                                            print("\033[1;31mWarning: infinitely many vGNE solutions detected. CASE NOT FULLY IMPLEMENTED YET. Region is not split.\033[0m")
+                                        elif rank_Mx2 < nvar:
+                                            U2 = U[:,rank_Mx2:]
+                                            if np.linalg.norm(U2.T@Mp2) <= 1.e-12:
+                                                print("\033[1;31mWarning: infinitely many vGNE solutions detected. CASE NOT FULLY IMPLEMENTED YET. Region is not split.\033[0m")
+                                                solve_mpQP2 = False
+                                        else:
                                             solve_mpQP2 = False 
-                                    else:
+
                                         # Don't split region
-                                        solve_mpQP2 = False                        
                                     
-                                    if solve_mpQP2:
+                                        if solve_mpQP2:
                                         # Solve variational GNE
-                                        mpQP2 = MPQP(H, f,  F, Ap_ext[:,npar:], bp_ext, -Ap_ext[:,:npar], pmin2, pmax2)
-                                    else:
-                                        Ap2 = np.vstack((Ap, Ap2))
-                                        bp2 = np.hstack((bp, bp2))
-                                        Ap2, bp2, _, _, _, _ = polyreduce(Ap2, bp2)
-                                        x,r = chebyshev_center(Ap2,bp2)  # compute Chebyshev center
-                                        if r>=1.e-6:
-                                            self.CRs.append({"Ath": Ap2, "bth": bp2, "z": Gp2, "dim": 0, "x_cheby": x, "r_cheby": r, "combination": comb, "Ath_ext": None, "bth_ext": None, "gain_y": None, "Mx": Mx2, "Mp": Mp2[:,:-1], "M1": Mp2[:,-1],
-                                                  "type": "variational"})
-                                        self.gains_CRs.append(gains)
+                                            mpQP2 = MPQP(H, f,  F, Ap_ext[:,npar:], bp_ext, -Ap_ext[:,:npar], pmin2, pmax2)
+                                        elif Gp2 is not None:
+                                            Ap2 = np.vstack((Ap, Ap2))
+                                            bp2 = np.hstack((bp, bp2))
+                                            Ap2, bp2, _, _, _, _ = polyreduce(Ap2, bp2)
+                                            x,r = chebyshev_center(Ap2,bp2)  # compute Chebyshev center
+                                            if r>=1.e-6:
+                                                self.CRs.append({"Ath": Ap2, "bth": bp2, "z": Gp2, "dim": 0, "x_cheby": x, "r_cheby": r, "combination": comb, "active_sets": active_sets, "Ath_ext": None, "bth_ext": None, "gain_y": None, "Mx": Mx2, "Mp": Mp2[:,:-1], "M1": Mp2[:,-1],
+                                                      "type": "variational"})
+                                            self.gains_CRs.append(gains)
 
                                 if solve_mpQP2:
                                     mpQP2.solve()
@@ -786,7 +811,7 @@ class NashMPQP:
                                             gain2[:,0:npar] += Gp[:,:npar]
                                             gain2[:,-1] += Gp[:,-1] 
                                             
-                                            CR = {"Ath": Ap2, "bth": bp2, "z": gain2, "dim": 0, "x_cheby": x, "r_cheby": r, "combination": comb, "Ath_ext": None, "bth_ext": None, "gain_y": None, "Mx": Mx, "Mp": Mp[:,:-1], "M1": Mp[:,-1],}
+                                            CR = {"Ath": Ap2, "bth": bp2, "z": gain2, "dim": 0, "x_cheby": x, "r_cheby": r, "combination": comb, "active_sets": active_sets, "Ath_ext": None, "bth_ext": None, "gain_y": None, "Mx": Mx, "Mp": Mp[:,:-1], "M1": Mp[:,-1],}
                                             if self.min_norm or self.welfare:
                                                 CR["type"] = self.split_method
                                             else:
@@ -821,7 +846,7 @@ class NashMPQP:
                                 ii = list(range(npar)) + [npar+n2]
                                 gain = Gp[:,ii].reshape(nvar,npar+1) # explicit solution x=gain@[p;1]+gain_y@y2
                                 gain_y = Gp[:,npar:npar+n2].reshape(nvar,n2)                                 
-                                self.CRs.append({"Ath": Ap, "bth": bp, "z": gain, "dim": n2, "x_cheby": x_proj, "r_cheby": r_proj, "combination": comb, "Ath_ext": Ap_ext, "bth_ext": bp_ext, "gain_y": gain_y, "Mx": Mx, "Mp": Mp[:,:-1], "M1": Mp[:,-1], "type": "infinitely-many"})
+                                self.CRs.append({"Ath": Ap, "bth": bp, "z": gain, "dim": n2, "x_cheby": x_proj, "r_cheby": r_proj, "combination": comb, "active_sets": active_sets, "Ath_ext": Ap_ext, "bth_ext": bp_ext, "gain_y": gain_y, "Mx": Mx, "Mp": Mp[:,:-1], "M1": Mp[:,-1], "type": "infinitely-many"})
                                 self.gains_CRs.append(gains)
         self.nr = len(self.CRs)
         elapsed_time = time.time() - elapsed_time
@@ -829,8 +854,10 @@ class NashMPQP:
         self.elapsed_time = elapsed_time
         return
     
-    def statistics(self):
+    def statistics(self, print_gains = False):
         """ Statistics on the explicit solution
+        
+        Prints the number of critical regions and their types, and the Chebyshev center and gain matrix of each critical region. If print_gains is True, also prints the gain matrix of each critical region.
         """
        
         is_unique = [self.CRs[i]["type"]=='unique' for i in range(len(self.CRs))] 
@@ -855,6 +882,18 @@ class NashMPQP:
             msg += f"\nNumber of critical regions with min-norm GNE solution:      {np.sum(is_minnorm): 4d}"
         if any(is_welfare)>0:
             msg += f"\nNumber of critical regions with welfare GNE solution:       {np.sum(is_welfare): 4d}"
+        
+        if print_gains:
+            msg += "\n\nExplicit affine expressions for the optimal strategies in each critical region:\n"
+    
+            z = [self.CRs[i]["z"] for i in range(self.nr)]
+            gain_y = [self.CRs[i]["gain_y"] for i in range(self.nr)]
+            for i in range(self.nr):
+                indent  = ' ' * len(f"Region #{i}: ")
+                z_str   = np.array2string(z[i],      precision=4, suppress_small=True, separator=', ', prefix=indent + "z      = ")
+                gy_str  = np.array2string(gain_y[i], precision=4, suppress_small=True, separator=', ', prefix=indent + "gain_y = ") if gain_y[i] is not None else "None"
+                msg += f"\033[37;44mRegion #{i}\033[0m: z      = {z_str}\n"
+                msg += f"{indent}gain_y = {gy_str}\n"
         return msg
 
     def plot_2d(self, show_centers = False, show_circles = False, show_legend = False, colors = None):
