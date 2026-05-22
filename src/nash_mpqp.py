@@ -61,7 +61,7 @@ def vertex_enumeration_region(A, b, lb, ub):
             np.vstack((A, np.eye(nx), -np.eye(nx))),
             np.hstack((b.reshape(-1,), ub, -lb)))).T
 
-def polyplot(A, b, lb, ub, alpha=0.4, color=None, label=None, ax=None):
+def polyplot(A, b, lb, ub, alpha=0.4, color=None, label=None, ax=None, **kwargs):
     """ Plots the polyhedron defined by Ax <= b, with bounds lb <= x <= ub. Only 2D and 3D plots are supported.
     """
     if ax is None:
@@ -78,7 +78,7 @@ def polyplot(A, b, lb, ub, alpha=0.4, color=None, label=None, ax=None):
         #if label is None:
         #    pypoman.plot_polygon(V, color = thecolor, alpha=alpha)
         #else:
-        poly = Polygon(V, closed=True, facecolor=thecolor, edgecolor=thecolor/2., alpha=alpha, label=label)
+        poly = Polygon(V, closed=True, facecolor=thecolor, edgecolor=thecolor/2., alpha=alpha, label=label, **kwargs)
         ax.add_patch(poly)
     
     elif A.shape[1]==3:
@@ -97,7 +97,7 @@ def polyplot(A, b, lb, ub, alpha=0.4, color=None, label=None, ax=None):
                 faces.append(V[simplex])  # Use V, not vertices
             
             # Create the 3D polygon collection
-            poly = Poly3DCollection(faces, color=np.random.rand(3), alpha=0.5, facecolor = color, edgecolor = color, label = label)
+            poly = Poly3DCollection(faces, color=np.random.rand(3), alpha=0.5, facecolor = color, edgecolor = color, label = label, **kwargs)
             ax.add_collection3d(poly)    
             
     else:
@@ -908,6 +908,7 @@ class NashMPQP:
             
         if colors is None:
             colors = np.random.rand(self.nr,3)
+            
         else:
             colors = np.array(colors)
             if colors.shape[0]<self.nr:
@@ -919,7 +920,7 @@ class NashMPQP:
         ax = plt.gca()
         for i in range(self.nr):
             thecolor = colors[i]
-            polyplot(A=self.CRs[i]["Ath"], b=self.CRs[i]["bth"], lb=self.pmin, ub=self.pmax, alpha=0.3, color=thecolor)
+            polyplot(A=self.CRs[i]["Ath"], b=self.CRs[i]["bth"], lb=self.pmin, ub=self.pmax, alpha=0.15, color=thecolor)
             
             if show_centers:
                 match self.CRs[i]["type"]:
@@ -934,12 +935,12 @@ class NashMPQP:
                     case "welfare":
                         label = "welfare"
                 x_cheby = self.CRs[i]["x_cheby"]
-                ax.scatter(x_cheby[0], x_cheby[1], color=thecolor, marker='o', s=60, zorder=10)
-                ax.scatter(x_cheby[0], x_cheby[1], color=thecolor, marker='s', s=25, label=f"$CR_{{{i+1}}}$ ({label})", zorder=10)
+                ax.scatter(x_cheby[0], x_cheby[1], color=thecolor, marker='o', s=40, zorder=10)
+                ax.scatter([], [], color=thecolor, marker='s', s=25, label=f"$CR_{{{i+1}}}$ ({label})")
 
             if show_circles:
-                circle = plt.Circle((x_cheby[0], x_cheby[1]), self.CRs[i]["r_cheby"], fill=False, linewidth=1., color=thecolor, 
-                            zorder=2, linestyle='--')
+                circle = plt.Circle((x_cheby[0], x_cheby[1]), self.CRs[i]["r_cheby"], fill=False, linewidth=0.75, color=thecolor, 
+                            zorder=2, linestyle=':')
                 ax.add_patch(circle)
 
         ax.grid()
@@ -949,7 +950,7 @@ class NashMPQP:
 
         if show_legend:
             ax.legend(loc="upper right")
-
+            
     def check_nash_equilibria(self):
         """ Check if solutions are indeed Nash equilibria by evaluating the best responses at the Chebyshev centers
         """

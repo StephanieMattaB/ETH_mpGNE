@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nash-mpqp"
-version = "0.2.0"
+version = "0.2.2"
 authors = [
   { name="Alberto Bemporad", email="alberto.bemporad@imtlucca.it" },
   { name="Sophie Hall", email="shall@control.ee.ethz.ch" },
