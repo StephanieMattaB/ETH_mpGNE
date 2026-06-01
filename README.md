@@ -12,6 +12,16 @@ $$
 \end{align}
 $$
 
+In DyNECT 
+
+$$
+\begin{align}
+\min_{x_i\in\mathbb{R}^{n_i}} \quad & \frac{1}{2} x^T Q_i x + (q_i + F_i theta)^T x \\
+\text{s.t.} \quad & Ax \leq b + Btheta\\
+& \ell \ \leq x \ \leq u
+\end{align}
+$$
+
 Where:
 - $x = [x_1; x_2; \ldots; x_N] \in [\ell_b, u_b]$ is the stacked decision vector of dimension $n=n_1+n_2+\ldots+n_N$;
 - $p \in [p_{\min}, p_{\max}]$ is the parameter vector
